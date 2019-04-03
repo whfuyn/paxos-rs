@@ -1,0 +1,12 @@
+[package]
+name = "paxos"
+version = "0.1.0"
+authors = ["whfuyn <whfuyn@outlook.com>"]
+edition = "2018"
+
+[dependencies]
+tokio = "0.1"
+futures = "0.1"
+bytes = "0.4.12"
+failure = "0.1.5"
+failure_derive = "0.1.5"
