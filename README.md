@@ -1,4 +1,6 @@
 # paxos-rs
+[![LICENSE](https://img.shields.io/badge/license-Anti%20996-blue.svg)](https://github.com/996icu/996.ICU/blob/master/LICENSE)
+
 An implementation of paxos algorithm in rust, based on the paper "Paxos Made Simple".
 
 I'm still working on it. It will be uploaded once I finish its sketch.
