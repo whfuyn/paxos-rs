@@ -7,7 +7,7 @@ This project is for learning purpose and praticing my rust programming. Its goal
 as is discussed in "Paxos Made Simple", in which every server can start a proposal and finally all servers reach consensus
 in a chosen value.
 
-# Usage
+## Usage
 
 Run this program in four different consoles with 1, 2, 3, 0 respectively as its parameter which denotes the server's id. 
 (0 must be the last one to run since the 0th server will initiate the first request.)
@@ -27,7 +27,7 @@ follower:
 ![](server2.jpg)
 
 
-# Drawbacks
+## Drawbacks
 
 Sequence number isn't stored locally as required by the algorithm.
 
