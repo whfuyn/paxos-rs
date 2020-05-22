@@ -14,12 +14,12 @@ Run this program in four different consoles with 1, 2, 3, 0 respectively as its 
 
 Before the 0th server begin, you will see something like 
 
-![alt text](before.jpg)
+![](before.jpg)
 
 After the first proposal started, all the four servers learned the chosen value 42.
 
 leader:
-![alt text](server0.jpg)
+![](server0.jpg)
 
 follower:
-![alt text](server1.jpg)
+![](server1.jpg)
