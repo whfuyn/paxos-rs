@@ -19,7 +19,16 @@ Before the 0th server begin, you will see something like
 After the first proposal started, all the four servers learned the chosen value 42.
 
 leader:
+
 ![](server0.jpg)
 
 follower:
-![](server1.jpg)
+
+![](server2.jpg)
+
+
+# Drawbacks
+
+Sequence number isn't stored locally as required by the algorithm.
+
+
