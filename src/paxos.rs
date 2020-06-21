@@ -27,7 +27,7 @@ pub enum Request {
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub enum Response {
-    Prepare { seq: usize, value: Option<u32> },
+    Prepare { seq: Option<usize>, value: Option<u32> },
     Accept { seq: usize },
 }
 
@@ -82,7 +82,7 @@ pub struct Paxos {
     last_promised: usize,
     chosen: Option<u32>,
     last_accepted: Option<u32>,
-    // peers_num: usize,
+    last_accepted_seq: Option<usize>,
     proposal: Option<Proposal>,
     current_seq: usize,
     tx: Tx<Outgoing>,
@@ -97,6 +97,7 @@ impl Paxos {
             last_promised: 0,
             chosen: None,
             last_accepted: None,
+            last_accepted_seq: None,
             peers_id,
             proposal: None,
             current_seq: 0,
@@ -129,10 +130,9 @@ impl Paxos {
         match req {
             Request::Prepare{seq} => {
                 if self.last_promised <= seq {
-                    let last_promised = self.last_promised;
                     self.last_promised = seq;
                     let resp = Response::Prepare{
-                        seq: last_promised,
+                        seq: self.last_accepted_seq,
                         value: self.last_accepted,
                     };
                     self.tx.unbounded_send(Outgoing{
@@ -144,6 +144,7 @@ impl Paxos {
             Request::Accept{seq, value} => {
                 if self.last_promised <= seq {
                     self.last_accepted = Some(value);
+                    self.last_accepted_seq = Some(seq);
                     let resp = Response::Accept{
                         seq: self.last_promised,
                     };
@@ -189,10 +190,16 @@ impl Paxos {
             Response::Prepare{seq, value} => {
                 if let Some(ref mut proposal) = self.proposal {
                     proposal.prepared.insert(src);
-                    if proposal.prepared.len() <= self.peers_id.len() / 2 + 1
-                        && value.is_some() && seq >= *proposal.highest_seq.get_or_insert(seq)
-                    {
-                        proposal.value = value;
+                    assert!(
+                        (seq.is_some() && value.is_some())
+                        || (seq.is_none() && value.is_none())
+                    );
+                    if let (Some(seq), Some(value)) = (seq, value) {
+                        if proposal.prepared.len() <= self.peers_id.len() / 2 + 1
+                            && seq >= *proposal.highest_seq.get_or_insert(seq)
+                        {
+                            proposal.value = Some(value);
+                        }
                     }
                     if proposal.prepared.len() == self.peers_id.len() / 2 + 1 {
                         let req = Request::Accept{
