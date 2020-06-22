@@ -15,13 +15,13 @@ cargo run
 ```
 
 This will give you an interactive console. The currently supported commands are:
-- start server_num
+- `start server_num`
   - Lanuch `server_num` servers. This command should be sent first before `query` and `propose`.
-- query server_id
+- `query server_id`
   - Query the #`server_id` server for the chosen value. Notice that #`0` server is used as an improvised client, and it doesn't participated in this paxos game. Don't query it.
-- propose server_id value
+- `propose server_id value`
   - Let the #`server_id` server start a proposal with the provided `value`.
-- exit
+- `exit`
   - Exit the console.
 
 All the commands above are case-insensitive, and can be used by their acronym. For examples:
