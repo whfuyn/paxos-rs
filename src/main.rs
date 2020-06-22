@@ -2,10 +2,9 @@
 
 use console::Console;
 
+mod console;
 mod network;
 mod paxos;
-mod console;
-
 
 fn main() {
     let console = Console::new();

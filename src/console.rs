@@ -1,15 +1,14 @@
-
-use std::str::FromStr;
-use std::io::BufRead;
-use std::sync::Arc;
-use std::net::SocketAddr;
+use futures::channel::mpsc;
 use std::collections::HashMap;
+use std::io::BufRead;
+use std::net::SocketAddr;
+use std::str::FromStr;
+use std::sync::Arc;
 use tokio::net::TcpStream;
 use tokio::prelude::*;
-use futures::channel::mpsc;
 
-use crate::paxos::*;
 use crate::network::*;
+use crate::paxos::*;
 
 macro_rules! print_flushed {
     ($($tokens: tt)*) => {
@@ -75,13 +74,12 @@ impl FromStr for Command {
             "x" | "exit" => Ok(Self::Exit),
             _ => Err(ParseCommandError),
         }
-
     }
 }
 
 pub struct Console {
     rt: tokio::runtime::Runtime,
-    addr_table: Option<Arc<HashMap<usize, SocketAddr>>>
+    addr_table: Option<Arc<HashMap<usize, SocketAddr>>>,
 }
 
 impl Console {
@@ -105,8 +103,7 @@ impl Console {
                         Command::Query(server_id) => self.query(server_id),
                         Command::Exit => break,
                     }
-                }
-                else {
+                } else {
                     println_flushed!("Unknown command.");
                 }
             }
@@ -128,15 +125,12 @@ impl Console {
                     }
                 };
                 self.rt.block_on(task);
-            }
-            else {
+            } else {
                 println_flushed!("error: server id dosen't exist.");
             }
-        }
-        else {
+        } else {
             println_flushed!("error: servers haven't started.");
         }
-
     }
 
     fn propose(&mut self, server_id: usize, val: u32) {
@@ -145,28 +139,26 @@ impl Console {
                 let addr = addr.clone();
                 let task = async move {
                     if let Ok(mut stream) = TcpStream::connect(addr).await {
-                        let dgram = Datagram::Request(Request::Propose{ value: val });
+                        let dgram = Datagram::Request(Request::Propose { value: val });
                         stream.write_all(&dgram.encode_with_src(0)).await.unwrap();
                     }
                 };
                 self.rt.block_on(task);
-            }
-            else {
+            } else {
                 println_flushed!("error: server id dosen't exist.");
             }
-        }
-        else {
+        } else {
             println_flushed!("error: servers haven't started.");
         }
     }
 
     fn start_servers(&mut self, server_num: usize, base_port: usize) {
-        let server_num = server_num + 1;  // #0 for client.
+        let server_num = server_num + 1; // #0 for client.
         let addr_table: Arc<HashMap<usize, SocketAddr>> = Arc::new(
-            ((base_port)..(base_port+server_num))
+            ((base_port)..(base_port + server_num))
                 .enumerate()
                 .map(|(id, port)| (id, format!("127.0.0.1:{}", port).parse().unwrap()))
-                .collect()
+                .collect(),
         );
         let start_server = |id: usize| {
             let (itx, irx) = mpsc::unbounded();
@@ -177,13 +169,12 @@ impl Console {
             self.rt.spawn(broker.run(itx, orx));
             self.rt.spawn(paxos.run());
         };
-        (0..server_num).for_each(|id|{
+        (0..server_num).for_each(|id| {
             start_server(id);
         });
         self.addr_table = Some(addr_table.clone());
     }
 }
-
 
 #[cfg(test)]
 mod test {

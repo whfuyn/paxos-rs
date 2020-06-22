@@ -1,7 +1,7 @@
-use std::collections::{HashSet};
+use bytes::{BufMut, Bytes, BytesMut};
 use futures::channel::mpsc;
-use bytes::{Bytes, BytesMut, BufMut};
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
+use std::collections::HashSet;
 use tokio::stream::StreamExt;
 
 pub type Tx<T> = mpsc::UnboundedSender<T>;
@@ -43,7 +43,6 @@ pub enum Datagram {
 }
 
 impl Datagram {
-
     pub fn encode_with_src(&self, src: usize) -> Bytes {
         const N: usize = std::mem::size_of::<usize>();
 
@@ -79,7 +78,6 @@ struct Proposal {
     accepted: HashSet<usize>,
 }
 
-
 #[derive(Debug)]
 pub struct Paxos {
     local_id: usize,
@@ -90,11 +88,16 @@ pub struct Paxos {
     proposal: Option<Proposal>,
     current_seq: usize,
     tx: Tx<Outgoing>,
-    rx: Rx<Incoming>
+    rx: Rx<Incoming>,
 }
 
 impl Paxos {
-    pub fn new(local_id: usize, peers_id: HashSet<usize>, tx: Tx<Outgoing>, rx: Rx<Incoming>) -> Self {
+    pub fn new(
+        local_id: usize,
+        peers_id: HashSet<usize>,
+        tx: Tx<Outgoing>,
+        rx: Rx<Incoming>,
+    ) -> Self {
         // log!("Paxos start with peers_num: {:?}", peers_id);
         Paxos {
             local_id,
@@ -121,7 +124,7 @@ impl Paxos {
     }
 
     fn handle_incoming(&mut self, incoming: Incoming) {
-        let Incoming{src, dgram} = incoming;
+        let Incoming { src, dgram } = incoming;
         match dgram {
             Datagram::Request(req) => self.handle_request(src, req),
             Datagram::Response(resp) => self.handle_response(src, resp),
@@ -129,71 +132,86 @@ impl Paxos {
     }
 
     fn handle_request(&mut self, src: usize, req: Request) {
-        log!("Server #{} handle req: {:?} from #{}.", self.local_id, req, src);
+        log!(
+            "Server #{} handle req: {:?} from #{}.",
+            self.local_id,
+            req,
+            src
+        );
         match req {
-            Request::Prepare{seq} => {
+            Request::Prepare { seq } => {
                 if self.last_promised <= seq {
                     self.last_promised = seq;
                     let resp = Response::Prepare(self.last_accepted_proposal);
-                    self.tx.unbounded_send(Outgoing{
-                        dst: (src..src+1).collect(),
-                        dgram: Datagram::Response(resp),
-                    }).unwrap();
-                }
-            },
-            Request::Accept{seq, value} => {
-                if self.last_promised <= seq {
-                    self.last_accepted_proposal = Some((seq, value));
-                    let resp = Response::Accept{
-                        seq: self.last_promised,
-                    };
-                    self.tx.unbounded_send(Outgoing{
-                        dst: (src..src+1).collect(),
-                        dgram: Datagram::Response(resp),
-                    }).unwrap();
+                    self.tx
+                        .unbounded_send(Outgoing {
+                            dst: (src..src + 1).collect(),
+                            dgram: Datagram::Response(resp),
+                        })
+                        .unwrap();
                 }
             }
-            Request::Learn{value} => {
+            Request::Accept { seq, value } => {
+                if self.last_promised <= seq {
+                    self.last_accepted_proposal = Some((seq, value));
+                    let resp = Response::Accept {
+                        seq: self.last_promised,
+                    };
+                    self.tx
+                        .unbounded_send(Outgoing {
+                            dst: (src..src + 1).collect(),
+                            dgram: Datagram::Response(resp),
+                        })
+                        .unwrap();
+                }
+            }
+            Request::Learn { value } => {
                 if let Some(chosen_value) = self.chosen {
                     assert!(chosen_value == value);
                 }
                 self.chosen = Some(value);
                 log!("Server#{} learned {}", self.local_id, self.chosen.unwrap());
             }
-            Request::Propose{value} => {
+            Request::Propose { value } => {
                 if let Some(ref _proposal) = self.proposal {
                     log!("override an existed proposal.");
                 }
                 let seq = self.next_seq();
-                self.proposal = Some(Proposal{
+                self.proposal = Some(Proposal {
                     seq,
                     value: None,
                     wanted_value: value,
                     highest_seq: None,
                     prepared: HashSet::new(),
-                    accepted: HashSet::new()
+                    accepted: HashSet::new(),
                 });
-                let req = Request::Prepare{ seq: seq };
-                self.tx.unbounded_send(Outgoing{
-                    dst: self.peers_id.clone(),
-                    dgram: Datagram::Request(req),
-                }).unwrap();
+                let req = Request::Prepare { seq };
+                self.tx
+                    .unbounded_send(Outgoing {
+                        dst: self.peers_id.clone(),
+                        dgram: Datagram::Request(req),
+                    })
+                    .unwrap();
             }
             Request::Query => {
-                let resp = Response::Query{
-                    val: self.chosen,
-                };
-                self.tx.unbounded_send(Outgoing{
-                    dst: (src..src+1).collect(),
-                    dgram: Datagram::Response(resp),
-                }).unwrap();
+                let resp = Response::Query { val: self.chosen };
+                self.tx
+                    .unbounded_send(Outgoing {
+                        dst: (src..src + 1).collect(),
+                        dgram: Datagram::Response(resp),
+                    })
+                    .unwrap();
             }
-            
         }
     }
 
     fn handle_response(&mut self, src: usize, resp: Response) {
-        log!("Server #{} handle resp: {:?} from #{}.", self.local_id, resp, src);
+        log!(
+            "Server #{} handle resp: {:?} from #{}.",
+            self.local_id,
+            resp,
+            src
+        );
         match resp {
             Response::Prepare(accepted_proposal) => {
                 if let Some(ref mut proposal) = self.proposal {
@@ -206,21 +224,22 @@ impl Paxos {
                         }
                     }
                     if proposal.prepared.len() == self.peers_id.len() / 2 + 1 {
-                        let req = Request::Accept{
+                        let req = Request::Accept {
                             seq: proposal.seq,
                             value: *proposal.value.get_or_insert(proposal.wanted_value),
                         };
-                        self.tx.unbounded_send(Outgoing{
-                            dst: proposal.prepared.clone(),
-                            dgram: Datagram::Request(req)
-                        }).unwrap();
+                        self.tx
+                            .unbounded_send(Outgoing {
+                                dst: proposal.prepared.clone(),
+                                dgram: Datagram::Request(req),
+                            })
+                            .unwrap();
                     }
-                }
-                else {
+                } else {
                     panic!("recv a resp for prepare, but no proposal presented");
                 }
-            },
-            Response::Accept{seq} => {
+            }
+            Response::Accept { seq } => {
                 // log!("handle accept resp seq: {}", seq);
                 if let Some(ref mut proposal) = self.proposal {
                     if seq == proposal.seq {
@@ -230,38 +249,39 @@ impl Paxos {
                             let value = proposal.value.unwrap();
                             if value == proposal.wanted_value {
                                 log!("proposal value `{}` success.", value);
+                            } else {
+                                log!(
+                                    "proposal value `{}` fail, `{}` is chosen.",
+                                    proposal.wanted_value,
+                                    value
+                                );
                             }
-                            else {
-                                log!("proposal value `{}` fail, `{}` is chosen.",
-                                    proposal.wanted_value, value);
-                            }
-                            let req = Request::Learn{
-                                value: proposal.value.unwrap()
+                            let req = Request::Learn {
+                                value: proposal.value.unwrap(),
                             };
                             log!("value accepted by majority: {}", value);
-                            self.tx.unbounded_send(Outgoing{
-                                dst: self.peers_id.clone(),
-                                dgram: Datagram::Request(req)
-                            }).unwrap();
+                            self.tx
+                                .unbounded_send(Outgoing {
+                                    dst: self.peers_id.clone(),
+                                    dgram: Datagram::Request(req),
+                                })
+                                .unwrap();
                         }
                     }
-                }
-                else {
+                } else {
                     panic!("recv an accepted response, but no proposal presented")
                 }
             }
-            Response::Query{val} => {
+            Response::Query { val } => {
                 if let Some(val) = val {
                     log!("Server #{} Answer: {}.", src, val);
-                }
-                else {
+                } else {
                     log!("Server #{} Answer: not learn yet.", src);
                 }
             }
         }
     }
 }
-
 
 #[cfg(test)]
 mod test {
@@ -279,5 +299,4 @@ mod test {
     //         panic!();
     //     }
     // }
-
 }
