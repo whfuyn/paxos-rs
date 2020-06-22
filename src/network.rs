@@ -19,13 +19,13 @@ pub struct Broker {
 impl Broker {
     pub fn new(
         local_id: usize,
-        peers_addr: HashMap<usize, SocketAddr>) -> Arc<Self>
+        servers_addr: HashMap<usize, SocketAddr>) -> Arc<Self>
     {
-        let id_by_addr: HashMap<SocketAddr, usize> = peers_addr.iter().map(|(&k, &v)| (v, k)).collect();
+        let id_by_addr: HashMap<SocketAddr, usize> = servers_addr.iter().map(|(&k, &v)| (v, k)).collect();
 
         let broker = Self {
             local_id,
-            addr_by_id: peers_addr,
+            addr_by_id: servers_addr,
             id_by_addr,
         };
         Arc::new(broker)
@@ -35,27 +35,27 @@ impl Broker {
         let mut listener = TcpListener::bind(self.addr_by_id[&self.local_id]).await?;
         tokio::spawn(self.clone().serve_outflow(rx));
         while let Some(socket) = listener.incoming().next().await {
-            tokio::spawn(self.clone().serve_inflow(socket?, tx.clone()));
+            tokio::spawn(Self::serve_inflow(socket?, tx.clone()));
         }
         Ok(())
     }
 
-    async fn serve_inflow(self: Arc<Self>, mut socket: TcpStream, tx: Tx<Incoming>) {
-        loop {
-            let mut buf = vec![0u8; 64];
-            if let Ok(src) = socket.read_u64().await {
-                let src = src as usize;
-                let len = socket.read_u64().await.unwrap() as usize;
-                socket.read_exact(&mut buf[..len]).await.expect("read_exact failed");
-                let decoded: Datagram = bincode::deserialize(&buf[..len]).unwrap();
-                tx.unbounded_send(Incoming{
-                    src,
-                    dgram: decoded,
-                }).unwrap();
-            }
-            else {
-                break;
-            }
+    pub async fn read_incoming(socket: &mut TcpStream) -> Result<(usize, Datagram), tokio::io::Error> {
+        let mut buf = vec![0u8; 512];
+        let src = socket.read_u64().await?;
+        let src = src as usize;
+        let len = socket.read_u64().await? as usize;
+        socket.read_exact(&mut buf[..len]).await?;
+        let decoded: Datagram = bincode::deserialize(&buf[..len]).unwrap();
+        Ok((src, decoded))
+    }
+
+    async fn serve_inflow(mut socket: TcpStream, tx: Tx<Incoming>) {
+        while let Ok((src, dgram)) = Self::read_incoming(&mut socket).await {
+            tx.unbounded_send(Incoming{
+                src,
+                dgram,
+            }).unwrap();
         }
     }
 
