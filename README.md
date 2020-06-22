@@ -3,7 +3,7 @@
 
 An implementation of paxos algorithm in rust, based on the paper "Paxos Made Simple".
 
-This project is for learning purpose and praticing my rust programming. Its goal is to implement the paxos algorithm
+This project is for learning purpose and praticing my rust programming skill. Its goal is to implement the paxos algorithm
 as is discussed in "Paxos Made Simple", in which every server can start a proposal and finally all servers reach consensus
 in a chosen value.
 
@@ -18,7 +18,7 @@ This will give you an interactive console. The currently supported commands are:
 - start server_num
   - Lanuch `server_num` servers. This command should be sent first before `query` and `propose`.
 - query server_id
-  - Query the #`server_id` server for the chosen value.
+  - Query the #`server_id` server for the chosen value. Notice that #`0` server is used as an improvised client, and it doesn't participated in this paxos game. Don't query it.
 - propose server_id value
   - Let the #`server_id` server start a proposal with the provided `value`.
 - exit
