@@ -7,28 +7,95 @@ This project is for learning purpose and praticing my rust programming. Its goal
 as is discussed in "Paxos Made Simple", in which every server can start a proposal and finally all servers reach consensus
 in a chosen value.
 
+
 ## Usage
 
-Run this program in four different consoles with 1, 2, 3, 0 respectively as its parameter which denotes the server's id. 
-(0 must be the last one to run since the 0th server will initiate the first request.)
+```
+cargo run
+```
 
-Before the 0th server begin, you will see something like 
+This will give you an interactive console. The currently supported commands are:
+- start server_num
+  - Lanuch `server_num` servers. This command should be sent first before `query` and `propose`.
+- query server_id
+  - Query the #`server_id` server for the chosen value.
+- propose server_id value
+  - Let the #`server_id` server start a proposal with the provided `value`.
+- exit
+  - Exit the console.
 
-![](before.jpg)
+All the commands above are case-insensitive, and can be used by their acronym. For examples:
+- `s 5` for `start 5`
+- `q 2` for `query 2`
+- `p 2 42` for `propose 2 42`
+- `x` for `exit`
 
-After the first proposal started, all the four servers learned the chosen value 42.
+After a command executed, servers will log requests and response they received. 
+You can see how each node react during the prepare and accept round.
 
-leader:
+```
+Paxos> start 3
+Paxos> query 1
+Server #1 handle req: Query from #0.
+Server #0 handle resp: Query { val: None } from #1.
+Server #1 Answer: not learn yet.
+Paxos> propose 2 42                                        <---------------------------
+Server #2 handle req: Propose { value: 42 } from #0.
+Server #2 handle req: Prepare { seq: 3 } from #2.
+Server #3 handle req: Prepare { seq: 3 } from #2.
+Server #1 handle req: Prepare { seq: 3 } from #2.
+Server #2 handle resp: Prepare(None) from #2.
+Server #2 handle resp: Prepare(None) from #3.
+Server #2 handle resp: Prepare(None) from #1.
+Server #2 handle req: Accept { seq: 3, value: 42 } from #2.
+Server #3 handle req: Accept { seq: 3, value: 42 } from #2.
+Server #2 handle resp: Accept { seq: 3 } from #2.
+Server #2 handle resp: Accept { seq: 3 } from #3.
+proposal value `42` success.                               <---------------------------
+value accepted by majority: 42
+Server #2 handle req: Learn { value: 42 } from #2.
+Server#2 learned 42
+Server #3 handle req: Learn { value: 42 } from #2.
+Server#3 learned 42
+Server #1 handle req: Learn { value: 42 } from #2.
+Server#1 learned 42
+Paxos> propose 3 1024                                      <---------------------------
+Server #3 handle req: Propose { value: 1024 } from #0.
+Server #3 handle req: Prepare { seq: 4 } from #3.
+Server #1 handle req: Prepare { seq: 4 } from #3.
+Server #2 handle req: Prepare { seq: 4 } from #3.
+Server #3 handle resp: Prepare(Some((3, 42))) from #3.
+Server #3 handle resp: Prepare(None) from #1.
+Server #3 handle resp: Prepare(Some((3, 42))) from #2.
+Server #3 handle req: Accept { seq: 4, value: 42 } from #3.
+Server #1 handle req: Accept { seq: 4, value: 42 } from #3.
+Server #3 handle resp: Accept { seq: 4 } from #3.
+Server #3 handle resp: Accept { seq: 4 } from #1.
+proposal value `1024` fail, `42` is chosen.                <---------------------------
+value accepted by majority: 42
+Server #3 handle req: Learn { value: 42 } from #3.
+Server#3 learned 42
+Server #1 handle req: Learn { value: 42 } from #3.
+Server#1 learned 42
+Server #2 handle req: Learn { value: 42 } from #3.
+Server#2 learned 42
+Paxos> exit
+```
 
-![](server0.jpg)
+## 2020/6/20 Changelog
+1. Update tokio version to 2.0, and rewrite the network component with async/await.
+2. Use `#[derive(Serialize, Deserilize)]`  to encode/decode Datagram into/from binary, instead of handwriting this utility.
+3. Rewrite the demo. Now you don't have to start many replicates to test the demo, all the servers can be launched at once.
+4. Bug fixes. Some of these bugs are quite serious:
+    1) When paxos receive a majority's acceptance, it broadcast the Learn request only to those who has just accepted instead of all the servers, causing those who didn't response swiftly ignorant to the consensus.
+    2) Sequence numbers conflicts. The paxos algorithm require the number of proposal to be unique, but the naive way (for simplicity) used to generate sequence numbers can't guarantee this. This bug still exist, even though I changed it to a slightly more sophisticated way. It can be fixed by using distinct prime number steps or pairing the sequence number with server's local id.
+   3) The most serious one that violate algorithm's safety: Replace the proposal's value with a higher-numbered but empty value during the prepare round. When the prepare finished, this empty value allowed the server to send accept request with arbitrary value to others, which led to divergent consensus.
 
-follower:
 
-![](server2.jpg)
+## Problems
 
-
-## Drawbacks
-
-Sequence number isn't stored locally as required by the algorithm.
-
+- Sequence number isn't stored locally as required by the algorithm.
+- Sequence number isn't unique. I will fix it later.
+- TcpStream's socket read sometimes receives unexpected eof. I didn't figure out why, temporarily ignoring it. Fix it later.
+- We need a connection pool!!
 
