@@ -1,19 +1,22 @@
-#![allow(unused)]
 use std::collections::{HashSet};
 use futures::channel::mpsc;
 use bytes::{Bytes, BytesMut, BufMut};
 use serde::{Serialize, Deserialize};
-use tokio::stream::{Stream, StreamExt};
+use tokio::stream::StreamExt;
 
 pub type Tx<T> = mpsc::UnboundedSender<T>;
 pub type Rx<T> = mpsc::UnboundedReceiver<T>;
 
 macro_rules! log {
     ($($tokens: tt)*) => {
-        use std::io::Write;
-        let stdout = std::io::stdout();
-        let mut handle = stdout.lock();
-        writeln!(handle, $($tokens)*).unwrap();
+        {
+            use std::io::Write;
+            let stdout = std::io::stdout();
+            let mut handle = stdout.lock();
+            writeln!(handle, $($tokens)*).unwrap();
+            handle.flush().unwrap();
+            // println!($($tokens)*);
+        }
     }
 }
 
@@ -23,12 +26,14 @@ pub enum Request {
     Prepare { seq: usize },
     Accept { seq: usize, value: u32 },
     Learn { value: u32 },
+    Query,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub enum Response {
-    Prepare { seq: Option<usize>, value: Option<u32> },
+    Prepare(Option<(usize, u32)>),
     Accept { seq: usize },
+    Query { val: Option<u32> },
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -42,7 +47,7 @@ impl Datagram {
     pub fn encode_with_src(&self, src: usize) -> Bytes {
         const N: usize = std::mem::size_of::<usize>();
 
-        let mut data = bincode::serialize(&self).unwrap();
+        let data = bincode::serialize(&self).unwrap();
         let mut buf = BytesMut::with_capacity(2 * N + data.len());
 
         buf.put_uint_be(src as u64, N);
@@ -81,8 +86,7 @@ pub struct Paxos {
     peers_id: HashSet<usize>,
     last_promised: usize,
     chosen: Option<u32>,
-    last_accepted: Option<u32>,
-    last_accepted_seq: Option<usize>,
+    last_accepted_proposal: Option<(usize, u32)>,
     proposal: Option<Proposal>,
     current_seq: usize,
     tx: Tx<Outgoing>,
@@ -96,8 +100,7 @@ impl Paxos {
             local_id,
             last_promised: 0,
             chosen: None,
-            last_accepted: None,
-            last_accepted_seq: None,
+            last_accepted_proposal: None,
             peers_id,
             proposal: None,
             current_seq: 0,
@@ -113,7 +116,7 @@ impl Paxos {
     }
 
     fn next_seq(&mut self) -> usize {
-        self.current_seq += (self.local_id + 1);
+        self.current_seq += self.local_id + 1;
         self.current_seq
     }
 
@@ -131,10 +134,7 @@ impl Paxos {
             Request::Prepare{seq} => {
                 if self.last_promised <= seq {
                     self.last_promised = seq;
-                    let resp = Response::Prepare{
-                        seq: self.last_accepted_seq,
-                        value: self.last_accepted,
-                    };
+                    let resp = Response::Prepare(self.last_accepted_proposal);
                     self.tx.unbounded_send(Outgoing{
                         dst: (src..src+1).collect(),
                         dgram: Datagram::Response(resp),
@@ -143,8 +143,7 @@ impl Paxos {
             },
             Request::Accept{seq, value} => {
                 if self.last_promised <= seq {
-                    self.last_accepted = Some(value);
-                    self.last_accepted_seq = Some(seq);
+                    self.last_accepted_proposal = Some((seq, value));
                     let resp = Response::Accept{
                         seq: self.last_promised,
                     };
@@ -180,6 +179,15 @@ impl Paxos {
                     dgram: Datagram::Request(req),
                 }).unwrap();
             }
+            Request::Query => {
+                let resp = Response::Query{
+                    val: self.chosen,
+                };
+                self.tx.unbounded_send(Outgoing{
+                    dst: (src..src+1).collect(),
+                    dgram: Datagram::Response(resp),
+                }).unwrap();
+            }
             
         }
     }
@@ -187,14 +195,10 @@ impl Paxos {
     fn handle_response(&mut self, src: usize, resp: Response) {
         log!("Server #{} handle resp: {:?} from #{}.", self.local_id, resp, src);
         match resp {
-            Response::Prepare{seq, value} => {
+            Response::Prepare(accepted_proposal) => {
                 if let Some(ref mut proposal) = self.proposal {
                     proposal.prepared.insert(src);
-                    assert!(
-                        (seq.is_some() && value.is_some())
-                        || (seq.is_none() && value.is_none())
-                    );
-                    if let (Some(seq), Some(value)) = (seq, value) {
+                    if let Some((seq, value)) = accepted_proposal {
                         if proposal.prepared.len() <= self.peers_id.len() / 2 + 1
                             && seq >= *proposal.highest_seq.get_or_insert(seq)
                         {
@@ -246,6 +250,14 @@ impl Paxos {
                     panic!("recv an accepted response, but no proposal presented")
                 }
             }
+            Response::Query{val} => {
+                if let Some(val) = val {
+                    log!("Server #{} Answer: {}.", src, val);
+                }
+                else {
+                    log!("Server #{} Answer: not learn yet.", src);
+                }
+            }
         }
     }
 }
@@ -255,17 +267,17 @@ impl Paxos {
 mod test {
     use super::*;
 
-    #[test]
-    fn test_encode() {
-        let dgram = Datagram::Request(Request::Propose{value: 42});
-        let encoded = dgram.encode();
-        let decoded: Datagram = bincode::deserialize(&encoded[8..]).unwrap();
-        if let Datagram::Request(Request::Propose{ value: 42 }) = decoded {
-            //..
-        }
-        else{
-            panic!();
-        }
-    }
+    // #[test]
+    // fn test_encode() {
+    //     let dgram = Datagram::Request(Request::Propose{value: 42});
+    //     let encoded = dgram.encode();
+    //     let decoded: Datagram = bincode::deserialize(&encoded[8..]).unwrap();
+    //     if let Datagram::Request(Request::Propose{ value: 42 }) = decoded {
+    //         //..
+    //     }
+    //     else{
+    //         panic!();
+    //     }
+    // }
 
 }
