@@ -3,6 +3,7 @@ use futures::channel::mpsc;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use tokio::stream::StreamExt;
+use std::cmp::Ordering;
 
 pub type Tx<T> = mpsc::UnboundedSender<T>;
 pub type Rx<T> = mpsc::UnboundedReceiver<T>;
@@ -20,20 +21,77 @@ macro_rules! log {
     }
 }
 
+pub type ValueType = u32;
+
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SequenceNumber {
+    server_id: usize,
+    seq: usize,
+}
+
+impl PartialOrd for SequenceNumber {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        if self.seq == other.seq {
+            Some(self.server_id.cmp(&other.server_id))
+        }
+        else {
+            Some(self.seq.cmp(&other.seq))
+        }
+    }
+}
+
+impl Ord for SequenceNumber {
+    fn cmp(&self, other: &Self) -> Ordering {
+        if self.seq == other.seq {
+            self.server_id.cmp(&other.server_id)
+        }
+        else {
+            self.seq.cmp(&other.seq)
+        }
+    }
+}
+
+impl SequenceNumber {
+    fn new(server_id: usize, seq: usize) -> Self {
+        Self {
+            server_id,
+            seq,
+        }
+    }
+
+    fn increase(&mut self) {
+        self.seq += 1;
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, Copy)]
+pub struct AcceptedProposal {
+    seq: SequenceNumber,
+    val: ValueType,
+}
+
+impl AcceptedProposal {
+    fn new(seq: SequenceNumber, val: ValueType) -> Self {
+        Self { seq, val, }
+    }
+}
+
+
+
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub enum Request {
-    Propose { value: u32 },
-    Prepare { seq: usize },
-    Accept { seq: usize, value: u32 },
-    Learn { value: u32 },
+    Propose { value: ValueType },
+    Prepare { seq: SequenceNumber },
+    Accept { seq: SequenceNumber, value: ValueType },
+    Learn { value: ValueType },
     Query,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub enum Response {
-    Prepare(Option<(usize, u32)>),
-    Accept { seq: usize },
-    Query { val: Option<u32> },
+    Prepare(Option<AcceptedProposal>),
+    Accept { seq: SequenceNumber },
+    Query { val: Option<ValueType> },
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -70,10 +128,10 @@ pub struct Outgoing {
 
 #[derive(Debug)]
 struct Proposal {
-    seq: usize,
-    value: Option<u32>,
-    wanted_value: u32,
-    highest_seq: Option<usize>,
+    seq: SequenceNumber,
+    value: Option<ValueType>,
+    wanted_value: ValueType,
+    highest_seq: Option<SequenceNumber>,
     prepared: HashSet<usize>,
     accepted: HashSet<usize>,
 }
@@ -82,11 +140,11 @@ struct Proposal {
 pub struct Paxos {
     local_id: usize,
     peers_id: HashSet<usize>,
-    last_promised: usize,
-    chosen: Option<u32>,
-    last_accepted_proposal: Option<(usize, u32)>,
+    last_promised: Option<SequenceNumber>,
+    chosen: Option<ValueType>,
+    last_accepted_proposal: Option<AcceptedProposal>,
     proposal: Option<Proposal>,
-    current_seq: usize,
+    current_seq: SequenceNumber,
     tx: Tx<Outgoing>,
     rx: Rx<Incoming>,
 }
@@ -101,12 +159,12 @@ impl Paxos {
         // log!("Paxos start with peers_num: {:?}", peers_id);
         Paxos {
             local_id,
-            last_promised: 0,
+            last_promised: None,
             chosen: None,
             last_accepted_proposal: None,
             peers_id,
             proposal: None,
-            current_seq: 0,
+            current_seq: SequenceNumber::new(local_id, 0),
             tx,
             rx,
         }
@@ -118,8 +176,8 @@ impl Paxos {
         }
     }
 
-    fn next_seq(&mut self) -> usize {
-        self.current_seq += self.local_id + 1;
+    fn next_seq(&mut self) -> SequenceNumber {
+        self.current_seq.increase();
         self.current_seq
     }
 
@@ -140,8 +198,8 @@ impl Paxos {
         );
         match req {
             Request::Prepare { seq } => {
-                if self.last_promised <= seq {
-                    self.last_promised = seq;
+                if self.last_promised.is_none() || self.last_promised.unwrap() <= seq {
+                    self.last_promised = Some(seq);
                     let resp = Response::Prepare(self.last_accepted_proposal);
                     self.tx
                         .unbounded_send(Outgoing {
@@ -150,19 +208,24 @@ impl Paxos {
                         })
                         .unwrap();
                 }
+                else {
+                    log!("Server#{} ignore low-seq req `{:?}` from #{}", self.local_id, req, src);
+                }
             }
             Request::Accept { seq, value } => {
-                if self.last_promised <= seq {
-                    self.last_accepted_proposal = Some((seq, value));
-                    let resp = Response::Accept {
-                        seq: self.last_promised,
-                    };
+                if self.last_promised.is_none() || self.last_promised.unwrap() <= seq {
+                    self.last_accepted_proposal = Some(AcceptedProposal::new(seq, value));
+                    let resp = Response::Accept { seq };
                     self.tx
                         .unbounded_send(Outgoing {
                             dst: (src..src + 1).collect(),
                             dgram: Datagram::Response(resp),
                         })
                         .unwrap();
+                }
+                else {
+                    log!("Server#{} ignore req `{:?}` from #{}", self.local_id, req, src);
+                    
                 }
             }
             Request::Learn { value } => {
@@ -173,8 +236,13 @@ impl Paxos {
                 log!("Server#{} learned {}", self.local_id, self.chosen.unwrap());
             }
             Request::Propose { value } => {
-                if let Some(ref _proposal) = self.proposal {
-                    log!("override an existed proposal.");
+                if let Some(proposal) = &self.proposal {
+                    if proposal.wanted_value == value {
+                        log!("Retry to propose `{}`", value);
+                    }
+                    else{
+                        log!("Override a existed proposal value `{}`.", proposal.wanted_value);
+                    }
                 }
                 let seq = self.next_seq();
                 self.proposal = Some(Proposal {
@@ -216,11 +284,11 @@ impl Paxos {
             Response::Prepare(accepted_proposal) => {
                 if let Some(ref mut proposal) = self.proposal {
                     proposal.prepared.insert(src);
-                    if let Some((seq, value)) = accepted_proposal {
+                    if let Some(AcceptedProposal{ seq, val }) = accepted_proposal {
                         if proposal.prepared.len() <= self.peers_id.len() / 2 + 1
                             && seq >= *proposal.highest_seq.get_or_insert(seq)
                         {
-                            proposal.value = Some(value);
+                            proposal.value = Some(val);
                         }
                     }
                     if proposal.prepared.len() == self.peers_id.len() / 2 + 1 {

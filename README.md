@@ -86,9 +86,12 @@ Paxos> exit
 ## Problems
 
 - Sequence number isn't stored locally as required by the algorithm.
-- Sequence number isn't unique. I will fix it later.
 - TcpStream's socket read sometimes receives unexpected eof. I didn't figure out why, temporarily ignoring it. Fix it later.
 - We need a connection pool!!
+
+## 2020/6/23 Changelog
+1. Resolve sequence number conflicts by adding a new `SequenceNumber` type which distinguish same sequence numbers by the server's id.
+2. Use a type alias `ValueType` instead of the bare `u32`.
 
 
 ## 2020/6/20 Changelog
@@ -98,6 +101,5 @@ Paxos> exit
 4. Bug fixes. Some of these bugs are quite serious:
     1) When paxos receive a majority's acceptance, it broadcast the Learn request only to those who has just accepted instead of all the servers, causing those who didn't response swiftly ignorant to the consensus.
     2) Sequence numbers conflicts. The paxos algorithm require the number of proposal to be unique, but the naive way (for simplicity) used to generate sequence numbers can't guarantee this. This bug still exist, even though I changed it to a slightly more sophisticated way. It can be fixed by using distinct prime number steps or pairing the sequence number with server's local id.
-   3) The most serious one that violate algorithm's safety: Replace the proposal's value with a higher-numbered but empty value during the prepare round. When the prepare finished, this empty value allowed the server to send accept request with arbitrary value to others, which led to divergent consensus.
-
+    3) The most serious one that violate algorithm's safety: Replace the proposal's value with a higher-numbered but empty value during the prepare round. When the prepare finished, this empty value allowed the server to send accept request with arbitrary value to others, which led to divergent consensus.
 

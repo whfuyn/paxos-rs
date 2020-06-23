@@ -37,7 +37,7 @@ macro_rules! println_flushed {
 #[derive(Debug, PartialEq)]
 enum Command {
     Start(usize),
-    Propose(usize, u32),
+    Propose(usize, ValueType),
     Query(usize),
     Exit,
 }
@@ -64,7 +64,7 @@ impl FromStr for Command {
             }
             "p" | "propose" => {
                 let id = tokens.next()?.parse::<usize>().unwrap();
-                let val = tokens.next()?.parse::<u32>().unwrap();
+                let val = tokens.next()?.parse::<ValueType>().unwrap();
                 Ok(Self::Propose(id, val))
             }
             "q" | "query" => {
@@ -133,7 +133,7 @@ impl Console {
         }
     }
 
-    fn propose(&mut self, server_id: usize, val: u32) {
+    fn propose(&mut self, server_id: usize, val: ValueType) {
         if let Some(addr_table) = &self.addr_table {
             if let Some(addr) = addr_table.get(&server_id) {
                 let addr = addr.clone();
