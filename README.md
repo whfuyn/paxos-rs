@@ -82,6 +82,9 @@ Server#2 learned 42
 Paxos> exit
 ```
 
+## Network
+
+![](network.jpg)
 
 ## Problems
 
