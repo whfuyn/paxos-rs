@@ -1,9 +1,9 @@
 use bytes::{BufMut, Bytes, BytesMut};
 use futures::channel::mpsc;
 use serde::{Deserialize, Serialize};
+use std::cmp::Ordering;
 use std::collections::HashSet;
 use tokio::stream::StreamExt;
-use std::cmp::Ordering;
 
 pub type Tx<T> = mpsc::UnboundedSender<T>;
 pub type Rx<T> = mpsc::UnboundedReceiver<T>;
@@ -33,8 +33,7 @@ impl PartialOrd for SequenceNumber {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         if self.seq == other.seq {
             Some(self.server_id.cmp(&other.server_id))
-        }
-        else {
+        } else {
             Some(self.seq.cmp(&other.seq))
         }
     }
@@ -44,8 +43,7 @@ impl Ord for SequenceNumber {
     fn cmp(&self, other: &Self) -> Ordering {
         if self.seq == other.seq {
             self.server_id.cmp(&other.server_id)
-        }
-        else {
+        } else {
             self.seq.cmp(&other.seq)
         }
     }
@@ -53,10 +51,7 @@ impl Ord for SequenceNumber {
 
 impl SequenceNumber {
     fn new(server_id: usize, seq: usize) -> Self {
-        Self {
-            server_id,
-            seq,
-        }
+        Self { server_id, seq }
     }
 
     fn increase(&mut self) {
@@ -72,18 +67,25 @@ pub struct AcceptedProposal {
 
 impl AcceptedProposal {
     fn new(seq: SequenceNumber, val: ValueType) -> Self {
-        Self { seq, val, }
+        Self { seq, val }
     }
 }
 
-
-
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub enum Request {
-    Propose { value: ValueType },
-    Prepare { seq: SequenceNumber },
-    Accept { seq: SequenceNumber, value: ValueType },
-    Learn { value: ValueType },
+    Propose {
+        value: ValueType,
+    },
+    Prepare {
+        seq: SequenceNumber,
+    },
+    Accept {
+        seq: SequenceNumber,
+        value: ValueType,
+    },
+    Learn {
+        value: ValueType,
+    },
     Query,
 }
 
@@ -207,9 +209,13 @@ impl Paxos {
                             dgram: Datagram::Response(resp),
                         })
                         .unwrap();
-                }
-                else {
-                    log!("Server#{} ignore low-seq req `{:?}` from #{}", self.local_id, req, src);
+                } else {
+                    log!(
+                        "Server#{} ignore low-seq req `{:?}` from #{}",
+                        self.local_id,
+                        req,
+                        src
+                    );
                 }
             }
             Request::Accept { seq, value } => {
@@ -222,10 +228,13 @@ impl Paxos {
                             dgram: Datagram::Response(resp),
                         })
                         .unwrap();
-                }
-                else {
-                    log!("Server#{} ignore req `{:?}` from #{}", self.local_id, req, src);
-                    
+                } else {
+                    log!(
+                        "Server#{} ignore req `{:?}` from #{}",
+                        self.local_id,
+                        req,
+                        src
+                    );
                 }
             }
             Request::Learn { value } => {
@@ -239,9 +248,11 @@ impl Paxos {
                 if let Some(proposal) = &self.proposal {
                     if proposal.wanted_value == value {
                         log!("Retry to propose `{}`", value);
-                    }
-                    else{
-                        log!("Override a existed proposal value `{}`.", proposal.wanted_value);
+                    } else {
+                        log!(
+                            "Override a existed proposal value `{}`.",
+                            proposal.wanted_value
+                        );
                     }
                 }
                 let seq = self.next_seq();
@@ -284,7 +295,7 @@ impl Paxos {
             Response::Prepare(accepted_proposal) => {
                 if let Some(ref mut proposal) = self.proposal {
                     proposal.prepared.insert(src);
-                    if let Some(AcceptedProposal{ seq, val }) = accepted_proposal {
+                    if let Some(AcceptedProposal { seq, val }) = accepted_proposal {
                         if proposal.prepared.len() <= self.peers_id.len() / 2 + 1
                             && seq >= *proposal.highest_seq.get_or_insert(seq)
                         {
