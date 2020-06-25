@@ -89,8 +89,7 @@ Paxos> exit
 ## Problems
 
 - Sequence number isn't stored locally as required by the algorithm.
-- TcpStream's socket read sometimes receives unexpected eof. I didn't figure out why, temporarily ignoring it. Fix it later.
-- We need a connection pool!!
+- Currently, every message's transmission making a new tcp connection, it's not good. Rewrite it to reuse previous connections.
 
 ## 2020/6/23 Changelog
 1. Resolve sequence number conflicts by adding a new `SequenceNumber` type which distinguish same sequence numbers by the server's id.
